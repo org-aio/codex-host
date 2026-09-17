@@ -297,6 +297,10 @@ describe("Renderer fixed Model request client", () => {
     const client = createRendererModelClient([{ addNotificationCallback, sendRequest }]);
     if (!client) throw new Error("Synthetic Model client was not created");
     expect(Object.keys(client).sort()).toEqual([
+      "buddyCancel",
+      "buddyConfigure",
+      "buddyModels",
+      "buddyStatus",
       "checkUpdate",
       "executeThreadCommand",
       "forkThread",

@@ -1,3 +1,10 @@
+import { BuddyRouter } from "./buddy/router.js";
+import {
+  BUDDY_MODELS_METHOD,
+  BUDDY_STATUS_METHOD,
+  BUDDY_SETTINGS_METHOD,
+  BUDDY_CANCEL_METHOD,
+} from "@codexhost/shared-contracts";
 import {
   IDLE_RELEASE_SETTINGS_METHOD,
   LOADED_SESSIONS_METHOD,
@@ -211,6 +218,7 @@ import {
 export interface AppServerHostOptions {
   stockCodexPath: string;
   arguments: string[];
+  buddyRouting?: boolean;
   defaultAgent: "codex" | "pi";
   environment?: NodeJS.ProcessEnv;
   desktopInput?: Readable;
@@ -480,6 +488,7 @@ class OrderedWriter {
 }
 
 export class AppServerHost {
+  #buddy: BuddyRouter | undefined;
   readonly #options: Required<
     Pick<AppServerHostOptions, "desktopInput" | "desktopOutput" | "diagnosticOutput">
   > &
@@ -584,6 +593,18 @@ export class AppServerHost {
           accountId: (await this.#currentCodexAccountId()) ?? "signed-out",
         }),
     });
+    if (options.buddyRouting) {
+      this.#buddy = new BuddyRouter({
+        environment,
+        request: (method, params) => this.#requestOfficial(method, params),
+        respond: (message) => this.#officialRuntime.send(message),
+        send: (message) => this.#writer.json(message),
+        forward: async (request) => {
+          await this.#officialRuntime.send(jsonValueSchema.parse(request) as JsonObject);
+        },
+        diagnose: (error) => this.#diagnose(error),
+      });
+    }
     this.#nativeAccountObserver = this.#accountControl.refresh
       ? new NativeAccountObserver({
           control: this.#accountControl,
@@ -678,6 +699,7 @@ export class AppServerHost {
   close(): void {
     if (this.#closeRequested) return;
     this.#closeRequested = true;
+    this.#buddy?.close();
     this.#externalRuntime.idleRelease.disable();
     this.#pluginLoadAbort.abort();
     this.#externalSteering.close();
@@ -689,6 +711,7 @@ export class AppServerHost {
   }
 
   async #closeOfficialRuntime(): Promise<void> {
+    this.#buddy?.close();
     this.#nativeAccountObserver?.close();
     if (this.#ownsOfficialRuntimeScope) await this.#officialRuntimeScope.close();
     await this.#officialRuntime.close();
@@ -826,6 +849,7 @@ export class AppServerHost {
 
   #hasActiveWork(): boolean {
     return (
+      this.#buddy?.hasActiveWork === true ||
       this.#externalSteering.hasPending() ||
       this.#pendingOfficialTurnStarts.size > 0 ||
       this.#activeOfficialTurns.size > 0 ||
@@ -925,6 +949,40 @@ export class AppServerHost {
     frame: Buffer<ArrayBufferLike>,
   ): Promise<void> {
     if (this.#closeRequested) return;
+    if (
+      [
+        BUDDY_STATUS_METHOD,
+        BUDDY_SETTINGS_METHOD,
+        BUDDY_CANCEL_METHOD,
+        BUDDY_MODELS_METHOD,
+      ].includes(request.method)
+    ) {
+      if (!this.#buddy) {
+        await this.#writer.json(
+          rpcError(request, -32601, "Buddy Router is not enabled on this Host"),
+        );
+        return;
+      }
+      try {
+        if (request.method === BUDDY_CANCEL_METHOD) {
+          const params = requestObject(request);
+          if (typeof params.threadId !== "string") {
+            throw new Error("Missing threadId");
+          }
+          this.#buddy.cancel(params.threadId);
+        }
+        const snapshot =
+          request.method === BUDDY_SETTINGS_METHOD
+            ? await this.#buddy.configure(request.params)
+            : request.method === BUDDY_MODELS_METHOD
+              ? await this.#buddy.refreshModels()
+              : await this.#buddy.snapshot();
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(snapshot) }));
+      } catch (error) {
+        await this.#writer.json(rpcError(request, -32602, errorMessage(error)));
+      }
+      return;
+    }
     if (request.method === LOADED_SESSIONS_METHOD) {
       await this.#writer.json(
         rpcEnvelope(request, { result: this.#externalRuntime.idleRelease.list() }),
@@ -1287,6 +1345,25 @@ export class AppServerHost {
         );
         return;
       }
+      const buddy = this.#buddy;
+      if (buddy) {
+        this.#dispatchDesktopRequest(async () => {
+          try {
+            if (await buddy.route(request)) {
+              return;
+            }
+            if (typeof threadId === "string") {
+              this.#pendingOfficialTurnStarts.set(request.id, threadId);
+            }
+            await this.#forwardOfficialRequest(request, frame);
+          } catch (error) {
+            await this.#writer.json(rpcError(request, -32090, errorMessage(error)));
+          } finally {
+            this.#signalActiveWorkChanged();
+          }
+        });
+        return;
+      }
       if (typeof threadId === "string") {
         this.#pendingOfficialTurnStarts.set(request.id, threadId);
       }
@@ -1308,6 +1385,9 @@ export class AppServerHost {
     }
     if (request.method === "turn/interrupt") {
       const params = requestObject(request);
+      if (typeof params.threadId === "string") {
+        this.#buddy?.cancel(params.threadId);
+      }
       const resolution =
         typeof params.threadId === "string"
           ? await this.#resolveExternalThread(params.threadId)
@@ -1447,6 +1527,7 @@ export class AppServerHost {
     frame: Buffer<ArrayBufferLike>,
   ): Promise<void> {
     try {
+      this.#buddy?.track(request);
       await this.#officialRuntime.sendFrame(frame);
     } catch {
       if (request.method === "turn/start") {
@@ -1465,6 +1546,10 @@ export class AppServerHost {
     value: JsonValue;
   }): Promise<void> {
     const parsed = input.value;
+    if (this.#buddy?.observe(parsed)) {
+      this.#signalActiveWorkChanged();
+      return;
+    }
     this.#observeOfficialTurnStartResponse(parsed);
     let forwarded: JsonValue = parsed;
     if (isRecord(parsed) && typeof parsed.method === "string" && "id" in parsed) {

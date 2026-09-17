@@ -16,7 +16,7 @@ const forbiddenInputFragments = [
   "/tools/",
 ];
 const forbiddenBundleReferences = ["sourceMappingURL="];
-const allowedRuntimePackages = new Set(["diff", "ws", "zod"]);
+const allowedRuntimePackages = new Set(["diff", "ws", "zod", "smol-toml"]);
 
 function normalizedInputPath(value) {
   return `/${value.replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "")}/`;

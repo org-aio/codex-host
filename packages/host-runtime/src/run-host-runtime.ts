@@ -162,6 +162,7 @@ export async function runHostRuntime(input: {
         if (!remoteControlPlan) {
           try {
             return await new AppServerHost({
+              buddyRouting: true,
               stockCodexPath,
               arguments: input.arguments,
               defaultAgent,
@@ -190,6 +191,7 @@ export async function runHostRuntime(input: {
             ...(updateCoordinator ? { updateCoordinator } : {}),
           };
           const host = new AppServerHost({
+            buddyRouting: true,
             ...common,
             arguments: input.arguments,
             onDelegationApi,
@@ -199,6 +201,7 @@ export async function runHostRuntime(input: {
             diagnosticOutput: process.stderr,
             createSession: ({ input: desktopInput, output: desktopOutput, diagnosticOutput }) =>
               new AppServerHost({
+                buddyRouting: true,
                 ...common,
                 arguments: [],
                 desktopInput,
@@ -264,6 +267,7 @@ export async function runHostRuntime(input: {
         diagnosticOutput: process.stderr,
         createSession: ({ input: desktopInput, output: desktopOutput, diagnosticOutput }) => {
           return new AppServerHost({
+            buddyRouting: true,
             stockCodexPath,
             arguments: [],
             defaultAgent,

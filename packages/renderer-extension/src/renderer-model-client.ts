@@ -1,4 +1,13 @@
 import {
+  BUDDY_MODELS_METHOD,
+  BUDDY_STATUS_METHOD,
+  BUDDY_SETTINGS_METHOD,
+  BUDDY_CANCEL_METHOD,
+  buddySnapshotSchema,
+  type BuddySnapshot,
+  type BuddySettings,
+} from "@codexhost/shared-contracts";
+import {
   IDLE_RELEASE_SETTINGS_METHOD,
   LOADED_SESSIONS_METHOD,
   loadedSessionsSchema,
@@ -156,6 +165,10 @@ function notificationTarget(manager: RequestManagerCandidate): RequestManagerCan
 }
 
 export interface RendererModelClient extends Partial<RendererSessionImportClient> {
+  buddyStatus?(): Promise<BuddySnapshot>;
+  buddyModels?(): Promise<BuddySnapshot>;
+  buddyConfigure?(settings: BuddySettings): Promise<BuddySnapshot>;
+  buddyCancel?(threadId: string): Promise<BuddySnapshot>;
   setIdleReleaseSettings?(settings: IdleReleaseSettings): Promise<IdleReleaseSettings>;
   listLoadedSessions?(): Promise<LoadedSession[]>;
   currentHostId?(): string | null;
@@ -309,6 +322,14 @@ export function createRendererModelClient(
   };
 
   return Object.freeze({
+    buddyStatus: async () =>
+      buddySnapshotSchema.parse(await manager.sendRequest(BUDDY_STATUS_METHOD, {})),
+    buddyModels: async () =>
+      buddySnapshotSchema.parse(await manager.sendRequest(BUDDY_MODELS_METHOD, {})),
+    buddyConfigure: async (settings: BuddySettings) =>
+      buddySnapshotSchema.parse(await manager.sendRequest(BUDDY_SETTINGS_METHOD, settings)),
+    buddyCancel: async (threadId: string) =>
+      buddySnapshotSchema.parse(await manager.sendRequest(BUDDY_CANCEL_METHOD, { threadId })),
     async listLoadedSessions(): Promise<LoadedSession[]> {
       return loadedSessionsSchema.parse(await manager.sendRequest(LOADED_SESSIONS_METHOD, {}));
     },

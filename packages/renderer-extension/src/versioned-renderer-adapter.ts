@@ -1,3 +1,4 @@
+import type { BuddySettings } from "@codexhost/shared-contracts";
 import { committedReactAncestors } from "@codexhost/desktop-control/renderer-bindings";
 import { installIdleReleasePreferenceSync } from "./renderer-idle-release-preference.js";
 import {
@@ -1093,6 +1094,34 @@ export function installCurrentRendererAdapter(): {
     return client;
   };
   const modelControl: RendererModelClient = Object.freeze({
+    buddyStatus: () => {
+      const client = currentModelClient();
+      if (!client.buddyStatus) {
+        throw new Error("Buddy Router unavailable");
+      }
+      return client.buddyStatus();
+    },
+    buddyModels: () => {
+      const client = currentModelClient();
+      if (!client.buddyModels) {
+        throw new Error("Buddy model discovery unavailable");
+      }
+      return client.buddyModels();
+    },
+    buddyConfigure: (settings: BuddySettings) => {
+      const client = currentModelClient();
+      if (!client.buddyConfigure) {
+        throw new Error("Buddy settings unavailable");
+      }
+      return client.buddyConfigure(settings);
+    },
+    buddyCancel: (threadId: string) => {
+      const client = currentModelClient();
+      if (!client.buddyCancel) {
+        throw new Error("Buddy cancellation unavailable");
+      }
+      return client.buddyCancel(threadId);
+    },
     currentHostId: () => currentRequestRoute()?.policy.hostId ?? null,
     clientForHost(hostId: string): RendererModelClient | null {
       const route = currentRequestRoute();

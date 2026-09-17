@@ -1,3 +1,4 @@
+import { installBuddyControl } from "./buddy/control.js";
 import {
   decodeHarnessPluginRoute,
   harnessIdSchema,
@@ -2686,6 +2687,25 @@ export function installRendererBindingProbe(
       (mounted) => mounted.composer.isConnected && mounted.control.root.isConnected,
     );
 
+  const buddyControl = installBuddyControl(
+    () => {
+      const mounted = connectedComposers()[0];
+      if (!mounted || controller.get(mounted.composer).agent !== "codex") {
+        return null;
+      }
+      const client = modelClientForHost(mounted.hostId ?? activeModelHostId() ?? "local");
+      if (!client) {
+        return null;
+      }
+      return {
+        anchor: mounted.composer,
+        threadId: threadIdFromComposerModelTarget(mounted.modelTarget),
+        client,
+      };
+    },
+    () => (settingsLifecycle.locale === "zh-CN" ? "zh-CN" : "en"),
+  );
+
   const api: RendererBindingProbeApi = {
     status() {
       const selections = connectedComposers().map((mounted) => ({
@@ -2791,6 +2811,7 @@ export function installRendererBindingProbe(
     dispose() {
       if (disposed) return;
       disposed = true;
+      buddyControl.dispose();
       usageNotificationDispose?.();
       usageNotificationDispose = null;
       adapterDispose?.();

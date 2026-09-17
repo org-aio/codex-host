@@ -71,6 +71,7 @@
 
 | 文档 | 内容与阅读时机 |
 | --- | --- |
+| [`product/buddy-auto-router.md`](product/buddy-auto-router.md) | Buddy fork 的夯规划、垃执行、动态模型目录、角色与零模型旁路；使用和修改 Auto Router 时阅读。 |
 | [`product/codex-accounts.md`](product/codex-accounts.md) | 设置页中的当前 Codex 身份、额度及其他 Harness 只读账号；修改账号 UI 或查询链路时阅读。 |
 | [`product/codex-native-account-switching-design.md`](product/codex-native-account-switching-design.md) | 移除 Codex 多账号切换后的只读边界；修改 Codex 认证或账号路由时阅读。 |
 | [`architecture/renderer-settings-styling.md`](architecture/renderer-settings-styling.md) | 设置页 Tailwind CSS 使用边界、构建方式与编写规则；新增或改版设置页界面时阅读。 |

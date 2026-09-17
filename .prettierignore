@@ -13,3 +13,6 @@ playwright-report/
 test-results/
 package-lock.json
 Cargo.lock
+
+# Pinned MIT sources from codex-buddy; retain upstream formatting.
+packages/buddy-engine/vendor/

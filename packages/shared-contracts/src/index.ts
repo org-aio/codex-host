@@ -1,3 +1,13 @@
+export {
+  BUDDY_MODELS_METHOD,
+  BUDDY_STATUS_METHOD,
+  BUDDY_SETTINGS_METHOD,
+  BUDDY_CANCEL_METHOD,
+  buddySettingsSchema,
+  buddySnapshotSchema,
+  buddyDecisionSchema,
+} from "./buddy-router.js";
+export type { BuddySettings, BuddySnapshot, BuddyDecision, BuddyModel } from "./buddy-router.js";
 import { z } from "zod";
 import { WORKSPACE_CONTRACT_VERSION } from "./version.js";
 export {

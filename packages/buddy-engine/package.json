@@ -1,0 +1,16 @@
+{
+  "name": "@codexhost/buddy-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./index.d.mts",
+      "import": "./index.mjs"
+    }
+  },
+  "dependencies": {
+    "smol-toml": "1.8.0"
+  }
+}

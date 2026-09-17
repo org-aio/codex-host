@@ -1,3 +1,40 @@
+# CodexHost · Buddy 版
+
+[org-aio/codex-host](https://github.com/org-aio/codex-host) 是 [BytePioneer-AI/codex-host](https://github.com/BytePioneer-AI/codex-host) 的 MIT fork，增加 Codex Buddy 的 **Auto Router、Git 智能体、IO 操作智能体和无模型命令旁路**。保留上游的多 Harness 功能。
+
+默认 **夯规划 → 垃执行**：
+
+| 请求 | 默认执行方式 |
+| --- | --- |
+| 精确命令，如“当前目录”“查看 git 状态” | 规则匹配后调用原生工具；零推理请求 |
+| 范围明确的简单任务，如提交代码、改 README、启动项目 | 垃模型 + Git / IO / 编码角色 |
+| 复杂设计、跨模块修改 | 夯模型只读调查并生成任务包，再由垃模型实施和验收 |
+
+模型只分两档：**GPT / Claude 系列是夯，其他系列是垃**。每次需要模型的请求，都从 Codex 当前供应商配置的 `/v1/models` 获取候选，再与 App Server 可用目录取交集。没有内置固定模型清单；名称分档也不代表价格或能力测评。可在面板明确指定各档模型。
+
+## 启动 Buddy 客户端
+
+当前 Buddy 版使用源码启动，需要 Node.js 22+、npm、Rust 工具链和已安装的 Codex Desktop：
+
+```bash
+git clone https://github.com/org-aio/codex-host.git
+cd codex-host
+npm ci
+npm start
+```
+
+`npm start` 会构建并重新启动 Codex Desktop。再次启动可运行 `npm start -- --no-build`。先结束或保存当前正在执行的任务。
+
+进入 **Codex** 执行链，在输入框上方展开 **Auto Router**。默认已开启；点击“刷新模型”即可看到动态候选，可选择“夯 · 规划模型”和“垃 · 执行模型”，并查看本轮规则难度分、路由依据、规划阶段、执行任务包、服务端接受的模型，以及旁路命令和退出码。关闭“自动路由”后恢复手动选模。
+
+这些 UI 和运行时能力由本 fork 的 launcher、Host 与 renderer 扩展提供。只运行 `npx -y codex-buddy` 不会为已打开的官方客户端添加本面板。原 CLI 的模型同步用法继续独立存在；若供应商模型尚未出现在 App Server 目录，可先运行 `npx -y codex-buddy sync` 并重新启动。
+
+不改写官方 app 的安装文件。官方更新后仍使用新的 Codex，GUI 注入若遇到上游结构变化，需要更新本 fork 的适配。Buddy 的更新源已指向 `org-aio/codex-host`；当前未发布 Buddy 安装包，先按源码方式使用。以下保留上游功能介绍与示例。
+
+详见 [Auto Router 用法与边界](docs/product/buddy-auto-router.md)。
+
+---
+
 <div align="center">
 
 # CodexHost
@@ -66,7 +103,7 @@ https://github.com/user-attachments/assets/c48192d7-23ff-4f6e-b61a-6345a655bb76
 
 **下载安装包**（macOS、Windows）
 
-前往 [最新版本](https://github.com/BytePioneer-AI/codex-host/releases/latest) 下载与系统和 CPU 架构匹配的安装包：macOS 选择 DMG，Windows 选择 EXE。
+上游安装包见 [上游版本](https://github.com/BytePioneer-AI/codex-host/releases/latest)，不包含本 fork 的 Buddy 改动。Buddy 版当前请使用本文开头的源码启动步骤；后续安装包将在 [本 fork 的 Releases](https://github.com/org-aio/codex-host/releases) 提供。
 
 <details>
 <summary>安装问题排查</summary>
