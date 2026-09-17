@@ -206,37 +206,50 @@ describe("Buddy native routing", () => {
     expect(f.requested.some((request) => request.method === "thread/start")).toBe(false);
     expect((await f.router.snapshot()).decisions[0]?.executorModel).toBe(null);
   });
-  it("bypasses both discovery and inference and keeps a failing real exit code", async () => {
-    const f = await fixture();
-    await f.router.route(f.turn("查看当前目录文件"));
-    expect(f.providerRequests()).toBe(0);
-    expect(f.requested).toEqual([]);
-    expect(f.forwarded[0]?.method).toBe("thread/shellCommand");
-    f.router.observe({ id: 2, result: {} });
-    f.router.observe({
-      method: "turn/started",
-      params: { threadId: "work", turn: { id: "shell", status: "inProgress" } },
-    });
-    f.router.observe({
-      method: "item/completed",
-      params: {
-        threadId: "work",
-        turnId: "shell",
-        item: { type: "commandExecution", exitCode: 17, status: "completed" },
-      },
-    });
-    f.router.observe({
-      method: "turn/completed",
-      params: { threadId: "work", turn: { id: "shell", status: "completed" } },
-    });
-    expect((await f.router.snapshot()).decisions[0]).toMatchObject({
-      phase: "failed",
-      exitCode: 17,
-      acceptedModel: null,
-    });
-    expect(f.router.hasActiveWork).toBe(false);
-    expect(f.sent[0]).toMatchObject({ id: 2, result: { turn: { id: "shell" } } });
-  });
+  it.runIf(process.platform !== "win32")(
+    "bypasses both discovery and inference and keeps a failing real exit code",
+    async () => {
+      const f = await fixture();
+      await f.router.route(f.turn("查看当前目录文件"));
+      expect(f.providerRequests()).toBe(0);
+      expect(f.requested).toEqual([]);
+      expect(f.forwarded[0]?.method).toBe("thread/shellCommand");
+      f.router.observe({ id: 2, result: {} });
+      f.router.observe({
+        method: "turn/started",
+        params: { threadId: "work", turn: { id: "shell", status: "inProgress" } },
+      });
+      f.router.observe({
+        method: "item/completed",
+        params: {
+          threadId: "work",
+          turnId: "shell",
+          item: { type: "commandExecution", exitCode: 17, status: "completed" },
+        },
+      });
+      f.router.observe({
+        method: "turn/completed",
+        params: { threadId: "work", turn: { id: "shell", status: "completed" } },
+      });
+      expect((await f.router.snapshot()).decisions[0]).toMatchObject({
+        phase: "failed",
+        exitCode: 17,
+        acceptedModel: null,
+      });
+      expect(f.router.hasActiveWork).toBe(false);
+      expect(f.sent[0]).toMatchObject({ id: 2, result: { turn: { id: "shell" } } });
+    },
+  );
+  it.runIf(process.platform === "win32")(
+    "keeps POSIX command bypass disabled on Windows",
+    async () => {
+      const f = await fixture();
+      await f.router.route(f.turn("查看当前目录文件"));
+      expect(f.providerRequests()).toBe(1);
+      expect(f.forwarded[0]?.method).toBe("turn/start");
+      expect(f.forwarded.some((request) => request.method === "thread/shellCommand")).toBe(false);
+    },
+  );
   it("uses the weak model for bounded work and synchronizes nested model settings", async () => {
     const f = await fixture();
     await f.router.route(
