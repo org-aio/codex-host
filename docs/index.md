@@ -71,7 +71,7 @@
 
 | 文档 | 内容与阅读时机 |
 | --- | --- |
-| [`product/buddy-private-chat.md`](product/buddy-private-chat.md) | q3 离线隐私输入区、专用端点配置、发送阻断与保护范围；处理敏感文本前阅读。 |
+| [`product/buddy-private-chat.md`](product/buddy-private-chat.md) | q3 隐私输入区、复用网关目录、发送阻断与保护范围；处理敏感文本前阅读。 |
 | [`product/buddy-auto-router.md`](product/buddy-auto-router.md) | Buddy fork 的夯规划、垃执行、动态模型目录、角色与零模型旁路；使用和修改 Auto Router 时阅读。 |
 | [`product/codex-accounts.md`](product/codex-accounts.md) | 设置页中的当前 Codex 身份、额度及其他 Harness 只读账号；修改账号 UI 或查询链路时阅读。 |
 | [`product/codex-native-account-switching-design.md`](product/codex-native-account-switching-design.md) | 移除 Codex 多账号切换后的只读边界；修改 Codex 认证或账号路由时阅读。 |

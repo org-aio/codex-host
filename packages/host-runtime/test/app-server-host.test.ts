@@ -8154,6 +8154,43 @@ describe("AppServerHost HarnessAdapter projection", () => {
 });
 
 describe("Buddy privacy send boundary", () => {
+  it("keeps startup metadata available while privacy mode stays enabled", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "buddy-private-startup-"));
+    writeFileSync(path.join(home, "buddy-router.json"), JSON.stringify({ privateMode: true }));
+    const fixture = createFixture({ buddyRouting: true, environment: { CODEX_HOME: home } });
+    await fixture.ready;
+    try {
+      for (const [index, method] of [
+        "configRequirements/read",
+        "experimentalFeature/list",
+        "skills/list",
+        "permissionProfile/list",
+      ].entries()) {
+        const request = readJsonLine(fixture.official.stdin);
+        writeRequest(fixture.desktopInput, { id: 650 + index, method, params: {} });
+        const forwarded = await request;
+        expect(forwarded.method).toBe(method);
+        fixture.official.stdout.write(
+          JSON.stringify({ id: requiredMessageId(forwarded), result: { available: true } }) + "\n",
+        );
+        await expect(
+          fixture.collector.waitFor((message) => message.id === 650 + index),
+        ).resolves.toMatchObject({ result: { available: true } });
+      }
+      writeRequest(fixture.desktopInput, {
+        id: 660,
+        method: "turn/start",
+        params: { threadId: "synthetic", input: [{ type: "text", text: "SYNTHETIC_PRIVATE" }] },
+      });
+      await expect(
+        fixture.collector.waitFor((message) => message.id === 660),
+      ).resolves.toMatchObject({ error: { code: -32091 } });
+    } finally {
+      await stopFixture(fixture);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   it("blocks ordinary native and external task entry points before any private text is forwarded", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "buddy-private-host-"));
     writeFileSync(path.join(home, "buddy-router.json"), JSON.stringify({ privateMode: true }));

@@ -35,6 +35,7 @@ async function fixture(
     redirect?: boolean;
     redirectOnPost?: boolean;
     missingModel?: boolean;
+    modelIds?: string[];
     wrongModel?: boolean;
     hold?: boolean;
     configured?: boolean;
@@ -67,7 +68,12 @@ async function fixture(
       if (req.url === "/v1/models") {
         res.end(
           JSON.stringify({
-            data: (options.missingModel ? ["gpt-online"] : ["q3-4b", "q3-14b"]).map((id) => ({
+            data: (
+              options.modelIds ??
+              (options.missingModel
+                ? ["gpt-online"]
+                : ["gpt-online", "q3-4b", "q3-14b", "deepseek-flash"])
+            ).map((id) => ({
               id,
             })),
           }),
@@ -95,12 +101,15 @@ async function fixture(
       );
     });
   });
-  const keyFile = join(home, "private-key");
-  await writeFile(keyFile, "fixture-private-key", { mode: 0o600 });
+  await writeFile(
+    join(home, "auth.json"),
+    JSON.stringify({ OPENAI_API_KEY: "fixture-gateway-key" }),
+    { mode: 0o600 },
+  );
   if (options.configured !== false) {
     await writeFile(
-      join(home, "buddy-private.json"),
-      JSON.stringify({ baseUrl: offline, offlineOnly: true, apiKeyFile: keyFile }),
+      join(home, "config.toml"),
+      `model_provider = "gateway"\n[model_providers.gateway]\nbase_url = ${JSON.stringify(offline)}\nrequires_openai_auth = true\n`,
     );
   }
   const chat = new BuddyPrivateChat({
@@ -124,7 +133,38 @@ async function fixture(
   };
 }
 
-describe("dedicated offline privacy channel", () => {
+describe("gateway q3 privacy channel", () => {
+  it("refreshes live availability and rejects a model removed before send", async () => {
+    const options = { modelIds: ["gpt-online", "q3-14b", "q3-4b-online"] };
+    const f = await fixture(options);
+    const request = { action: "status", sessionId: f.sessionId };
+    expect((await f.chat.handle(request, true)).models).toEqual(["q3-14b"]);
+    options.modelIds = ["gpt-online"];
+    await expect(
+      f.chat.handle(
+        { action: "send", sessionId: f.sessionId, model: "q3-14b", text: "SYNTHETIC_PRIVATE" },
+        true,
+      ),
+    ).rejects.toThrow("没有所选");
+    expect((await f.chat.handle(request, true)).models).toEqual([]);
+    expect(f.requests.every((request) => request.url === "/v1/models")).toBe(true);
+    expect(f.onlineRequests()).toBe(0);
+  });
+  it("discovers only allowed private models from the configured mixed gateway without extra config", async () => {
+    const f = await fixture();
+    const status = await f.chat.handle({ action: "status", sessionId: f.sessionId }, true);
+    expect(status).toMatchObject({
+      configured: true,
+      endpoint: f.offline,
+      models: ["q3-4b", "q3-14b"],
+      messages: [],
+    });
+    expect(f.requests).toEqual([
+      { url: "/v1/models", body: {}, authorization: "Bearer fixture-gateway-key" },
+    ]);
+    expect(await readdir(f.home)).not.toContain("buddy-private.json");
+    expect(f.onlineRequests()).toBe(0);
+  });
   it("permits empty UI prewarming but never prompts, injected instructions or a model turn", () => {
     expect(
       privacySafeRequest("thread/start", { model: "gpt-6", cwd: "/synthetic", config: null }),
@@ -137,6 +177,18 @@ describe("dedicated offline privacy channel", () => {
     );
     expect(privacySafeRequest("thread/start", { config: { model: "online" } })).toBe(false);
     expect(privacySafeRequest("turn/start", {})).toBe(false);
+    expect(privacySafeRequest("configRequirements/read", null)).toBe(true);
+    expect(privacySafeRequest("experimentalFeature/list", {})).toBe(true);
+    expect(privacySafeRequest("skills/list", { cwds: ["/synthetic"] })).toBe(true);
+    expect(
+      privacySafeRequest("thread/resume", { threadId: "saved-thread", excludeTurns: true }),
+    ).toBe(true);
+    expect(
+      privacySafeRequest("thread/resume", {
+        threadId: "saved-thread",
+        history: [{ text: "SYNTHETIC_PRIVATE" }],
+      }),
+    ).toBe(false);
   });
   it("does not transfer existing private history after an endpoint or credential change", async () => {
     const f = await fixture();
@@ -147,11 +199,14 @@ describe("dedicated offline privacy channel", () => {
       text: "SYNTHETIC_PRIVATE",
     };
     await f.chat.handle(input, true);
-    await writeFile(join(f.home, "private-key"), "fixture-different-scope-key");
+    await writeFile(
+      join(f.home, "auth.json"),
+      JSON.stringify({ OPENAI_API_KEY: "fixture-different-scope-key" }),
+    );
     await expect(f.chat.handle(input, true)).rejects.toThrow("凭据已变更");
     await writeFile(
-      join(f.home, "buddy-private.json"),
-      JSON.stringify({ baseUrl: f.offline + "/other", offlineOnly: true }),
+      join(f.home, "config.toml"),
+      `model_provider = "gateway"\n[model_providers.gateway]\nbase_url = ${JSON.stringify(f.offline + "/other")}\nrequires_openai_auth = true\n`,
     );
     await expect(f.chat.handle(input, true)).rejects.toThrow("地址已变更");
     expect(f.requests).toHaveLength(2);
@@ -160,7 +215,7 @@ describe("dedicated offline privacy channel", () => {
       (await f.chat.handle({ action: "status", sessionId: f.sessionId }, false)).messages,
     ).toEqual([]);
   });
-  it("uses only the offline endpoint and key, retaining private history outside native tasks", async () => {
+  it("uses the Codex gateway credentials and only q3 models, retaining private history outside native tasks", async () => {
     const f = await fixture();
     const first = await f.chat.handle(
       {
@@ -183,7 +238,7 @@ describe("dedicated offline privacy channel", () => {
     );
     expect(second.messages).toHaveLength(4);
     expect(f.onlineRequests()).toBe(0);
-    expect(f.requests.every((entry) => entry.authorization === "Bearer fixture-private-key")).toBe(
+    expect(f.requests.every((entry) => entry.authorization === "Bearer fixture-gateway-key")).toBe(
       true,
     );
     const post = f.requests.filter((entry) => entry.url.endsWith("chat/completions"));
@@ -191,9 +246,7 @@ describe("dedicated offline privacy channel", () => {
     expect(post[1]?.body).toMatchObject({ store: false, stream: false });
     expect(JSON.stringify(post[1]?.body.messages)).toContain("SYNTHETIC_PRIVATE_CANARY_1");
     expect(post[1]?.body).not.toHaveProperty("tools");
-    expect(await readdir(f.home)).toEqual(
-      expect.arrayContaining(["buddy-private.json", "private-key"]),
-    );
+    expect(await readdir(f.home)).toEqual(expect.arrayContaining(["config.toml", "auth.json"]));
     expect(await readdir(f.home)).toHaveLength(2);
     f.chat.close();
     expect(
@@ -231,7 +284,7 @@ describe("dedicated offline privacy channel", () => {
         f.requests.filter((entry) => entry.url.endsWith("chat/completions")).length,
       ).toBeLessThanOrEqual(1);
       expect(
-        (await f.chat.handle({ action: "status", sessionId: f.sessionId }, true)).messages,
+        (await f.chat.handle({ action: "cancel", sessionId: f.sessionId }, true)).messages,
       ).toEqual([]);
     },
   );

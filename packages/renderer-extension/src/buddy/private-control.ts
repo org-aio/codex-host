@@ -4,15 +4,17 @@ import type { RendererModelClient } from "../renderer-model-client.js";
 const messages = {
   "zh-CN": {
     title: "离线隐私对话",
-    note: "仅直连你确认的自部署端点；不使用在线规划、工具、标题或摘要。对话仅在内存保留，退出隐私模式会清空。请只在此输入区粘贴敏感文本。",
+    note: "仅使用网关中的自部署 q3。隐私模式已阻止在线模型发送，对话仅在内存保留。",
     placeholder: "敏感内容仅输入此处…（纯文本）",
     send: "发送至离线模型",
     cancel: "取消",
     clear: "清空隐私对话",
-    missing: "尚未配置专用离线端点，禁止发送。请配置 CODEX_HOME/buddy-private.json。",
+    missing: "Codex 网关配置或凭据不可用。",
+    noModels: "网关目录中没有可用的 q3-4b 或 q3-14b，发送已禁用。",
+    refresh: "刷新模型",
     disconnected: "隐私通道未连接；不会改用普通发送。",
     pending: "离线模型正在回复…",
-    ready: "离线专用端点：",
+    ready: "当前网关：",
     model: "离线模型",
     user: "你",
     assistant: "离线回复",
@@ -20,16 +22,17 @@ const messages = {
   },
   en: {
     title: "Offline private chat",
-    note: "Connects only to your confirmed self-hosted endpoint. No online planning, tools, titles or summaries. History stays in memory and is cleared when leaving private mode. Paste sensitive text only here.",
+    note: "Uses only self-hosted q3 models on your gateway. Online model requests are blocked. History stays in memory.",
     placeholder: "Sensitive text goes only here… (text only)",
     send: "Send offline",
     cancel: "Cancel",
     clear: "Clear private chat",
-    missing:
-      "No dedicated offline endpoint configured. Sending is blocked. Configure CODEX_HOME/buddy-private.json.",
+    missing: "Codex gateway configuration or credentials unavailable.",
+    noModels: "No q3-4b or q3-14b in the gateway catalog. Sending is disabled.",
+    refresh: "Refresh models",
     disconnected: "Private channel disconnected; normal sending is never used.",
     pending: "Offline model is replying…",
-    ready: "Dedicated offline endpoint: ",
+    ready: "Current gateway: ",
     model: "Offline model",
     user: "You",
     assistant: "Offline reply",
@@ -55,21 +58,16 @@ export function createPrivateControl(getLocale: () => "zh-CN" | "en") {
   textarea.spellcheck = false;
   textarea.setAttribute("data-gramm", "false");
   const model = document.createElement("select");
-  for (const id of ["q3-4b", "q3-14b"]) {
-    const option = document.createElement("option");
-    option.value = id;
-    option.textContent = id;
-    model.append(option);
-  }
   const actions = document.createElement("div");
   actions.className = "buddy-settings";
   const send = document.createElement("button");
   const cancel = document.createElement("button");
   const clear = document.createElement("button");
-  for (const button of [send, cancel, clear]) {
+  const reload = document.createElement("button");
+  for (const button of [send, cancel, clear, reload]) {
     button.type = "button";
   }
-  actions.append(model, send, cancel, clear);
+  actions.append(model, reload, send, cancel, clear);
   const error = document.createElement("p");
   error.setAttribute("role", "alert");
   element.append(title, note, status, transcript, textarea, actions, error);
@@ -91,16 +89,31 @@ export function createPrivateControl(getLocale: () => "zh-CN" | "en") {
     textarea.placeholder = m.placeholder;
     textarea.setAttribute("aria-label", m.placeholder);
     model.setAttribute("aria-label", m.model);
+    const selected = model.value;
+    model.replaceChildren();
+    for (const id of snapshot?.models ?? []) {
+      const option = document.createElement("option");
+      option.value = id;
+      option.textContent = id;
+      model.append(option);
+    }
+    if (snapshot?.models.includes(selected as BuddyPrivateModel)) {
+      model.value = selected;
+    }
     send.textContent = m.send;
     cancel.textContent = m.cancel;
     clear.textContent = m.clear;
-    send.disabled = pending || !snapshot?.configured || !client?.buddyPrivate;
+    reload.textContent = m.refresh;
+    reload.disabled = pending;
+    send.disabled = pending || !snapshot?.configured || !model.value || !client?.buddyPrivate;
     cancel.disabled = !pending;
     model.disabled = pending;
     status.textContent = pending
       ? m.pending
       : snapshot?.configured
-        ? m.ready + snapshot.endpoint
+        ? snapshot.models.length
+          ? m.ready + snapshot.endpoint
+          : m.noModels
         : m.missing;
     transcript.replaceChildren();
     for (const message of snapshot?.messages ?? []) {
@@ -127,13 +140,17 @@ export function createPrivateControl(getLocale: () => "zh-CN" | "en") {
         return;
       }
       snapshot = value;
+      error.textContent = "";
       render();
     } catch (failure) {
       if (version === generation && active) {
+        snapshot = null;
+        render();
         report(failure);
       }
     }
   };
+  reload.addEventListener("click", () => void refresh());
   send.addEventListener("click", () => {
     if (!active || pending || !textarea.value.trim() || !client?.buddyPrivate) {
       return;

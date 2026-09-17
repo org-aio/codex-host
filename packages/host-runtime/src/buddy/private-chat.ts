@@ -1,23 +1,20 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { homePath } from "@codexhost/buddy-engine";
-import { buddyPrivateRequestSchema, type BuddyPrivateSnapshot } from "@codexhost/shared-contracts";
+import { homePath, readConnection } from "@codexhost/buddy-engine";
+import {
+  buddyPrivateModelSchema,
+  buddyPrivateRequestSchema,
+  type BuddyPrivateModel,
+  type BuddyPrivateSnapshot,
+} from "@codexhost/shared-contracts";
 import { privateJson } from "./private-transport.js";
 
-const configSchema = z
-  .object({
-    baseUrl: z.string().url(),
-    offlineOnly: z.literal(true),
-    apiKeyEnv: z
-      .string()
-      .regex(/^[A-Za-z_][A-Za-z0-9_]*$/u)
-      .optional(),
-    apiKeyFile: z.string().min(1).optional(),
-  })
-  .strict()
-  .refine((value) => !(value.apiKeyEnv && value.apiKeyFile));
+type GatewayConfig = {
+  modelsUrl: URL;
+  completionUrl: URL;
+  headers: Headers;
+  endpoint: string;
+};
 type Session = {
   model: BuddyPrivateSnapshot["model"];
   messages: BuddyPrivateSnapshot["messages"];
@@ -35,31 +32,32 @@ export class BuddyPrivateChat {
   }
 
   async #config() {
-    let raw: unknown;
     try {
-      raw = JSON.parse(await readFile(join(this.#home, "buddy-private.json"), "utf8"));
+      const connection = await readConnection(this.#home, this.environment);
+      const completionUrl = new URL(connection.url);
+      completionUrl.pathname = completionUrl.pathname.replace(/\/models$/u, "/chat/completions");
+      return {
+        modelsUrl: connection.url,
+        completionUrl,
+        headers: connection.headers,
+        endpoint: connection.url.origin + connection.url.pathname.replace(/\/models$/u, ""),
+      };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return null;
       }
-      throw new Error("无法读取离线专用配置；未发送任何隐私内容。");
+      throw new Error("无法读取 Codex 网关配置或凭据；未发送任何隐私内容。");
     }
-    const parsed = configSchema.safeParse(raw);
+  }
+
+  async #models(config: GatewayConfig, signal: AbortSignal) {
+    const catalog = await privateJson(config.modelsUrl, config.headers, signal);
+    const parsed = z.object({ data: z.array(z.object({ id: z.string() })) }).safeParse(catalog);
     if (!parsed.success) {
-      throw new Error("离线专用配置无效；必须确认 offlineOnly，并使用独立地址与凭据。");
+      throw new Error("网关模型目录无效；未发送对话。");
     }
-    const url = new URL(parsed.data.baseUrl);
-    if (
-      !["http:", "https:"].includes(url.protocol) ||
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash
-    ) {
-      throw new Error("离线地址必须是无凭据、查询参数和片段的 HTTP(S) API 地址。");
-    }
-    url.pathname = url.pathname.replace(/\/$/u, "") + "/";
-    return { ...parsed.data, url };
+    const ids = new Set(parsed.data.data.map((model) => model.id));
+    return buddyPrivateModelSchema.options.filter((id) => ids.has(id));
   }
 
   async handle(value: unknown, enabled: boolean): Promise<BuddyPrivateSnapshot> {
@@ -79,25 +77,29 @@ export class BuddyPrivateChat {
       this.#sessions.get(input.sessionId)?.controller?.abort();
     }
     const config = await this.#config();
+    let models: BuddyPrivateModel[] = [];
+    if (enabled && config && input.action === "status") {
+      models = await this.#models(config, AbortSignal.timeout(10_000));
+    }
     if (input.action === "send") {
       if (!enabled) {
         throw new Error("请先启用离线隐私模式；内容没有发送。");
       }
       if (!config) {
-        throw new Error("未配置离线专用端点；内容没有发送。");
+        throw new Error("未配置 Codex 网关；内容没有发送。");
       }
       let session = this.#sessions.get(input.sessionId);
       if (session?.controller) {
         throw new Error("离线模型仍在回复，请等待或取消。");
       }
-      if (session && session.endpoint !== config.url.href) {
-        throw new Error("离线地址已变更，请清空隐私对话后重试。");
+      if (session && session.endpoint !== config.modelsUrl.href) {
+        throw new Error("网关地址已变更，请清空隐私对话后重试。");
       }
       if (!session) {
         if (this.#sessions.size >= 16) {
           throw new Error("隐私会话数量已达上限，请清空不用的会话。");
         }
-        session = { model: null, messages: [], endpoint: config.url.href };
+        session = { model: null, messages: [], endpoint: config.modelsUrl.href };
         this.#sessions.set(input.sessionId, session);
       }
       if (
@@ -111,41 +113,20 @@ export class BuddyPrivateChat {
       session.controller = controller;
       const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]);
       try {
-        let key: string | null = null;
-        if (config.apiKeyEnv) {
-          key = this.environment[config.apiKeyEnv]?.trim() ?? null;
-          if (!key) {
-            throw new Error("离线专用凭据环境变量未配置。");
-          }
-        }
-        if (config.apiKeyFile) {
-          try {
-            key = (await readFile(config.apiKeyFile, "utf8")).trim();
-          } catch {
-            throw new Error("离线专用凭据文件不可读取。");
-          }
-          if (!key) {
-            throw new Error("离线专用凭据文件为空。");
-          }
-        }
-        if (key && /[\r\n\0]/u.test(key)) {
-          throw new Error("离线专用凭据格式无效。");
-        }
         const binding = createHash("sha256")
-          .update(config.url.href + "\n" + (key ?? ""))
+          .update(config.modelsUrl.href + "\n" + JSON.stringify([...config.headers].sort()))
           .digest("hex");
         if (session.binding && session.binding !== binding) {
-          throw new Error("离线凭据已变更，请先清空隐私会话。");
+          throw new Error("网关凭据已变更，请先清空隐私会话。");
         }
         session.binding = binding;
-        const catalog = await privateJson(new URL("models", config.url), key, signal);
-        const models = z.object({ data: z.array(z.object({ id: z.string() })) }).safeParse(catalog);
-        if (!models.success || !models.data.data.some((model) => model.id === input.model)) {
-          throw new Error("离线端点没有所选 q3 模型；未发送对话、未回退在线。");
+        models = await this.#models(config, signal);
+        if (!models.includes(input.model)) {
+          throw new Error("网关目录没有所选 q3 模型；未发送对话、未回退在线。");
         }
         signal.throwIfAborted();
         const messages = [...session.messages, { role: "user" as const, text: input.text }];
-        const response = await privateJson(new URL("chat/completions", config.url), key, signal, {
+        const response = await privateJson(config.completionUrl, config.headers, signal, {
           model: input.model,
           messages: messages.map((message) => ({ role: message.role, content: message.text })),
           stream: false,
@@ -195,7 +176,8 @@ export class BuddyPrivateChat {
     return {
       sessionId: input.sessionId,
       configured: config !== null,
-      endpoint: config?.url.href ?? null,
+      endpoint: config?.endpoint ?? null,
+      models,
       model: session?.model ?? null,
       busy: Boolean(session?.controller),
       messages: session?.messages ?? [],
@@ -218,7 +200,7 @@ export function explicitlyPrivate(params: unknown): boolean {
 }
 
 export function privacySafeRequest(method: string, params?: unknown): boolean {
-  if (method === "thread/start") {
+  if (method === "thread/start" || method === "thread/resume") {
     // 允许桌面预热空任务，但不能携带提示、历史或配置注入，更不能开始回合。
     const emptyThread = z
       .object({
@@ -228,7 +210,21 @@ export function privacySafeRequest(method: string, params?: unknown): boolean {
         serviceTier: z.string().nullable().optional(),
         approvalPolicy: z.string().nullable().optional(),
         sandbox: z.string().nullable().optional(),
-        ephemeral: z.boolean().optional(),
+        ephemeral: z.boolean().nullable().optional(),
+        approvalsReviewer: z.string().nullable().optional(),
+        permissions: z.string().nullable().optional(),
+        personality: z.string().nullable().optional(),
+        historyMode: z.string().nullable().optional(),
+        projectId: z.string().nullable().optional(),
+        serviceName: z.string().nullable().optional(),
+        sessionStartSource: z.string().nullable().optional(),
+        threadSource: z.string().nullable().optional(),
+        multiAgentMode: z.string().nullable().optional(),
+        allowProviderModelFallback: z.boolean().optional(),
+        dynamicTools: z.array(z.never()).nullable().optional(),
+        environments: z.array(z.never()).nullable().optional(),
+        selectedCapabilityRoots: z.array(z.never()).nullable().optional(),
+        runtimeWorkspaceRoots: z.array(z.string()).nullable().optional(),
         experimentalRawEvents: z.boolean().optional(),
         persistExtendedHistory: z.boolean().optional(),
         baseInstructions: z.null().optional(),
@@ -236,19 +232,48 @@ export function privacySafeRequest(method: string, params?: unknown): boolean {
         config: z.null().optional(),
       })
       .strict();
+    if (method === "thread/resume") {
+      return emptyThread
+        .extend({
+          threadId: z.string(),
+          excludeTurns: z.boolean().optional(),
+          history: z.null().optional(),
+          path: z.null().optional(),
+        })
+        .safeParse(params).success;
+    }
     return emptyThread.safeParse(params ?? {}).success;
   }
   return [
     "thread/list",
     "thread/read",
     "thread/items/list",
+    "thread/turns/list",
+    "thread/goal/get",
+    "thread/queue/list",
+    "thread/backgroundTerminals/list",
+    "thread/timeline/list",
     "thread/loaded/list",
     "thread/unsubscribe",
     "turn/interrupt",
     "model/list",
     "config/read",
+    "configRequirements/read",
+    "experimentalFeature/list",
+    "permissionProfile/list",
+    "modelProvider/capabilities/read",
+    "project/list",
+    "project/read",
+    "threadSection/list",
+    "skills/list",
+    "hooks/list",
+    "plugin/list",
+    "app/list",
+    "mcpServerStatus/list",
+    "environment/status",
     "account/read",
     "account/rateLimits/read",
+    "account/usage/read",
     "collaborationMode/list",
     "codexhost/harness/plugins/list",
     "codexhost/harness/inspect",

@@ -13,7 +13,7 @@ const privateSessions=new Map();
 const client={buddyStatus:async()=>structuredClone(snapshot),buddyModels:async()=>structuredClone(snapshot),buddyConfigure:async(value)=>{snapshot.settings=value;if(!value.privateMode)privateSessions.clear();return structuredClone(snapshot);},buddyCancel:async()=>{decision.phase='cancelled';return structuredClone(snapshot);},buddyPrivate:async(value)=>{
 privateRequests.push(value);
 if(value.action==='reset')privateSessions.delete(value.sessionId);
-const state=privateSessions.get(value.sessionId)??{sessionId:value.sessionId,configured:true,endpoint:'http://127.0.0.1:9999/v1/ (fixture)',model:null,busy:false,messages:[]};
+const state=privateSessions.get(value.sessionId)??{sessionId:value.sessionId,configured:true,endpoint:'http://127.0.0.1:9999/v1 (fixture)',models:['q3-4b','q3-14b'],model:null,busy:false,messages:[]};
 if(value.action==='send'){state.model=value.model;state.messages.push({role:'user',text:value.text},{role:'assistant',text:'模拟离线回复：'+value.text});privateSessions.set(value.sessionId,state);}
 return structuredClone(state);
 }};

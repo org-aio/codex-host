@@ -1,10 +1,10 @@
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
-// 专用直连不继承在线供应商、全局 Agent 或环境代理，也不跟随重定向。
+// 复用网关认证头，隔离全局 Agent 和环境代理，不跟随重定向。
 export async function privateJson(
   url: URL,
-  key: string | null,
+  headers: Headers,
   signal: AbortSignal,
   body?: unknown,
 ): Promise<unknown> {
@@ -18,8 +18,8 @@ export async function privateJson(
         agent: false,
         signal,
         headers: {
+          ...Object.fromEntries(headers),
           Accept: "application/json",
-          ...(key ? { Authorization: `Bearer ${key}` } : {}),
           ...(payload
             ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
             : {}),

@@ -8,4 +8,4 @@
 
 详见 [功能契约与验证](../../../../docs/product/buddy-auto-router.md)。测试位于 `../../test/buddy/router.test.ts`，修改协议后同时执行 Host 现有测试和显式真实验证脚本。
 
-`private-chat.ts` 和 `private-transport.ts` 提供独立 q3 隐私通道：仅进程内存历史、专用端点与凭据、固定两模型白名单、不跟随重定向、不继承环境代理、不提供工具。Host 必须在普通及外部请求路由前检查隐私开关；不能把私密文本放入原生任务、路由决策或诊断日志。验收包含 `private-chat.test.ts` 和 Host 边界测试，详见 [隐私功能说明](../../../../docs/product/buddy-private-chat.md)。
+`private-chat.ts` 和 `private-transport.ts` 提供独立 q3 隐私通道：复用 `readConnection` 读取 Codex 网关和认证头，每次发送前读取实时目录并取两个 q3 ID 的交集；仅进程内存历史、不跟随重定向、不继承环境代理、不提供工具。Host 在普通及外部请求路由前检查隐私开关，允许启动所需的只读元数据和无输入的原生任务预热、恢复；不能把私密文本放入原生任务、路由决策或诊断日志。验收包含 `private-chat.test.ts` 和 Host 边界测试，详见 [隐私功能说明](../../../../docs/product/buddy-private-chat.md)。

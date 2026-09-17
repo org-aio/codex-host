@@ -20,6 +20,7 @@ export const buddyPrivateSnapshotSchema = z.object({
   sessionId,
   configured: z.boolean(),
   endpoint: z.string().nullable(),
+  models: z.array(buddyPrivateModelSchema).default([]),
   model: buddyPrivateModelSchema.nullable(),
   busy: z.boolean(),
   messages: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string() })),

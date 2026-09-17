@@ -120,7 +120,7 @@ jobs:
 
           解压下载文件，打开 DMG，将 codexhost.app 拖到 Applications。
           需要已安装 Codex Desktop；保存任务并完全退出 Codex 后，启动 codexhost。
-          此预览包为临时签名，未经 Apple 公证。离线隐私端点需要单独配置。
+          此预览包为临时签名，未经 Apple 公证。隐私模型自动读取已配置网关的模型目录。
 
           来源提交：${GITHUB_SHA}
           EOF
