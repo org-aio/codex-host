@@ -1,4 +1,4 @@
-import type { BuddySettings } from "@codexhost/shared-contracts";
+import type { BuddySettings, BuddyPrivateRequest } from "@codexhost/shared-contracts";
 import { committedReactAncestors } from "@codexhost/desktop-control/renderer-bindings";
 import { installIdleReleasePreferenceSync } from "./renderer-idle-release-preference.js";
 import {
@@ -1094,6 +1094,13 @@ export function installCurrentRendererAdapter(): {
     return client;
   };
   const modelControl: RendererModelClient = Object.freeze({
+    buddyPrivate: (input: BuddyPrivateRequest) => {
+      const client = currentModelClient();
+      if (!client.buddyPrivate) {
+        throw new Error("Private channel unavailable; nothing sent");
+      }
+      return client.buddyPrivate(input);
+    },
     buddyStatus: () => {
       const client = currentModelClient();
       if (!client.buddyStatus) {

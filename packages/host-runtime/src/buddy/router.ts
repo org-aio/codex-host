@@ -122,6 +122,9 @@ export class BuddyRouter {
 
   async refreshModels(): Promise<BuddySnapshot> {
     await this.#loadSettings();
+    if (this.#settings.privateMode) {
+      throw new Error("隐私模式下不读取在线供应商目录。");
+    }
     const inventory = await discoverModels({
       home: this.#home,
       environment: this.options.environment,
@@ -141,7 +144,7 @@ export class BuddyRouter {
     await writeFile(temporary, JSON.stringify(settings, null, 2) + "\n", { mode: 0o600 });
     await rename(temporary, file);
     this.#settings = settings;
-    if (!settings.enabled) {
+    if (!settings.enabled || settings.privateMode) {
       for (const controller of this.#jobs.values()) {
         controller.abort();
       }
@@ -151,6 +154,11 @@ export class BuddyRouter {
 
   cancel(threadId: string): void {
     this.#jobs.get(threadId)?.abort();
+  }
+
+  async privateMode(): Promise<boolean> {
+    await this.#loadSettings();
+    return this.#settings.privateMode;
   }
 
   get hasActiveWork(): boolean {
@@ -267,6 +275,9 @@ export class BuddyRouter {
 
   async route(request: JsonRpcRequest): Promise<boolean> {
     await this.#loadSettings();
+    if (this.#settings.privateMode) {
+      throw new Error("隐私模式已阻止普通模型路由，请使用离线隐私输入区。");
+    }
     const params = object(request.params) as JsonObject;
     if (
       !this.#settings.enabled ||

@@ -294,6 +294,7 @@ class ModernSessionImportAdapter extends FakeHarnessAdapter {
 
 function createFixture(
   options: {
+    buddyRouting?: boolean;
     environment?: NodeJS.ProcessEnv;
     pluginDirectory?: string;
     externalAdapters?: ReadonlyMap<ExternalHarnessId, FakeHarnessAdapter>;
@@ -330,6 +331,7 @@ function createFixture(
   const createOfficialConnection = options.createOfficialConnection;
   if (options.officialRuntimeScope) startup.resolve(undefined);
   const host = new AppServerHost({
+    ...(options.buddyRouting !== undefined ? { buddyRouting: options.buddyRouting } : {}),
     stockCodexPath: "/synthetic/codex",
     arguments: ["app-server"],
     defaultAgent: "codex",
@@ -8148,5 +8150,83 @@ describe("AppServerHost HarnessAdapter projection", () => {
     });
     expect(fixture.adapter.sessions).toHaveLength(0);
     await stopFixture(fixture);
+  });
+});
+
+describe("Buddy privacy send boundary", () => {
+  it("blocks ordinary native and external task entry points before any private text is forwarded", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "buddy-private-host-"));
+    writeFileSync(path.join(home, "buddy-router.json"), JSON.stringify({ privateMode: true }));
+    const fixture = createFixture({ buddyRouting: true, environment: { CODEX_HOME: home } });
+    const native = new JsonLineCollector(fixture.official.stdin);
+    await fixture.ready;
+    try {
+      const methods = [
+        "turn/start",
+        "turn/steer",
+        "thread/start",
+        "thread/resume",
+        "thread/fork",
+        "review/start",
+        "thread/compact/start",
+        "thread/name/set",
+        "codexhost/thread/command/execute",
+        "codexhost/thread/fork",
+      ];
+      for (const [index, method] of methods.entries()) {
+        const id = 700 + index;
+        fixture.desktopInput.write(
+          JSON.stringify({
+            id,
+            method,
+            params: {
+              threadId: "synthetic-thread",
+              input: [{ type: "text", text: "SYNTHETIC_PRIVATE_CANARY" }],
+            },
+          }) + "\n",
+        );
+        await expect(
+          fixture.collector.waitFor((message) => message.id === id),
+        ).resolves.toMatchObject({ id, error: { code: -32091 } });
+      }
+      expect(JSON.stringify(native.messages)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+      expect(fixture.adapter.sessions).toHaveLength(0);
+      expect(fixture.diagnosticOutput.read()?.toString() ?? "").not.toContain(
+        "SYNTHETIC_PRIVATE_CANARY",
+      );
+    } finally {
+      await stopFixture(fixture);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("intercepts an explicit private marker even when ordinary routing is disabled", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "buddy-private-host-"));
+    writeFileSync(
+      path.join(home, "buddy-router.json"),
+      JSON.stringify({ enabled: false, privateMode: false }),
+    );
+    const fixture = createFixture({ buddyRouting: true, environment: { CODEX_HOME: home } });
+    const native = new JsonLineCollector(fixture.official.stdin);
+    await fixture.ready;
+    try {
+      fixture.desktopInput.write(
+        JSON.stringify({
+          id: 800,
+          method: "turn/start",
+          params: {
+            threadId: "synthetic-thread",
+            input: [{ type: "text", text: "【隐私】SYNTHETIC_PRIVATE_CANARY" }],
+          },
+        }) + "\n",
+      );
+      await expect(
+        fixture.collector.waitFor((message) => message.id === 800),
+      ).resolves.toMatchObject({ error: { code: -32091 } });
+      expect(JSON.stringify(native.messages)).not.toContain("SYNTHETIC_PRIVATE_CANARY");
+    } finally {
+      await stopFixture(fixture);
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

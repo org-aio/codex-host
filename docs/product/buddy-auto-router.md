@@ -2,6 +2,10 @@
 
 本功能属于 `org-aio/codex-host` fork。通过源码根目录的 `npm ci`、`npm start` 启动；启动命令会重新打开桌面端。输入框上方的 Auto Router 是功能入口，仅对 Codex Harness 生效。
 
+## 隐私优先
+
+[离线隐私模式](buddy-private-chat.md) 优先于普通 Auto Router。开启后不走本文的夯规划、垃执行或命令旁路，只允许独立隐私输入区直连自部署 q3。关闭 Auto Router 不会关闭隐私保护；退出隐私模式会清空私密对话。
+
 ## 默认策略
 
 1. 先做确定性意图识别：短语、完整命令和项目入口匹配不调用 AI。这一层是规则路由（rule-based routing）与命令分发（intent dispatch），不是训练过的 RouterLLM 分类器。

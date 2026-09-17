@@ -1,4 +1,6 @@
 import { BuddyRouter } from "./buddy/router.js";
+import { BuddyPrivateChat, explicitlyPrivate, privacySafeRequest } from "./buddy/private-chat.js";
+import { BUDDY_PRIVATE_METHOD } from "@codexhost/shared-contracts";
 import {
   BUDDY_MODELS_METHOD,
   BUDDY_STATUS_METHOD,
@@ -489,6 +491,7 @@ class OrderedWriter {
 
 export class AppServerHost {
   #buddy: BuddyRouter | undefined;
+  #privateChat: BuddyPrivateChat | undefined;
   readonly #options: Required<
     Pick<AppServerHostOptions, "desktopInput" | "desktopOutput" | "diagnosticOutput">
   > &
@@ -594,12 +597,16 @@ export class AppServerHost {
         }),
     });
     if (options.buddyRouting) {
+      this.#privateChat = new BuddyPrivateChat(environment);
       this.#buddy = new BuddyRouter({
         environment,
         request: (method, params) => this.#requestOfficial(method, params),
         respond: (message) => this.#officialRuntime.send(message),
         send: (message) => this.#writer.json(message),
         forward: async (request) => {
+          if (await this.#buddy?.privateMode()) {
+            throw new Error("隐私模式已阻止在线执行。");
+          }
           await this.#officialRuntime.send(jsonValueSchema.parse(request) as JsonObject);
         },
         diagnose: (error) => this.#diagnose(error),
@@ -700,6 +707,7 @@ export class AppServerHost {
     if (this.#closeRequested) return;
     this.#closeRequested = true;
     this.#buddy?.close();
+    this.#privateChat?.close();
     this.#externalRuntime.idleRelease.disable();
     this.#pluginLoadAbort.abort();
     this.#externalSteering.close();
@@ -712,6 +720,7 @@ export class AppServerHost {
 
   async #closeOfficialRuntime(): Promise<void> {
     this.#buddy?.close();
+    this.#privateChat?.close();
     this.#nativeAccountObserver?.close();
     if (this.#ownsOfficialRuntimeScope) await this.#officialRuntimeScope.close();
     await this.#officialRuntime.close();
@@ -898,6 +907,10 @@ export class AppServerHost {
       if (isRecord(parsed) && parsed.method === "initialized" && !("id" in parsed)) {
         continue;
       }
+      if (isRecord(parsed) && !("method" in parsed) && (await this.#buddy?.privateMode())) {
+        // 隐私模式期间不把任何普通审批或问答回复交给在线执行链。
+        continue;
+      }
       if (await this.#handleDesktopApprovalResponse(parsed)) continue;
       if (await this.#handleDesktopQuestionResponse(parsed)) continue;
       const requestResult = jsonRpcRequestSchema.safeParse(parsed);
@@ -949,6 +962,21 @@ export class AppServerHost {
     frame: Buffer<ArrayBufferLike>,
   ): Promise<void> {
     if (this.#closeRequested) return;
+    if (request.method === BUDDY_PRIVATE_METHOD) {
+      try {
+        if (!this.#privateChat || !this.#buddy) {
+          throw new Error("当前 Host 不支持离线隐私通道；未发送内容。");
+        }
+        const snapshot = await this.#privateChat.handle(
+          request.params,
+          await this.#buddy.privateMode(),
+        );
+        await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(snapshot) }));
+      } catch (error) {
+        await this.#writer.json(rpcError(request, -32091, errorMessage(error)));
+      }
+      return;
+    }
     if (
       [
         BUDDY_STATUS_METHOD,
@@ -977,11 +1005,34 @@ export class AppServerHost {
             : request.method === BUDDY_MODELS_METHOD
               ? await this.#buddy.refreshModels()
               : await this.#buddy.snapshot();
+        if (request.method === BUDDY_SETTINGS_METHOD && !snapshot.settings.privateMode) {
+          this.#privateChat?.close();
+        }
         await this.#writer.json(rpcEnvelope(request, { result: jsonValueSchema.parse(snapshot) }));
       } catch (error) {
         await this.#writer.json(rpcError(request, -32602, errorMessage(error)));
       }
       return;
+    }
+    if (this.#buddy) {
+      try {
+        if (
+          (await this.#buddy.privateMode()) &&
+          !privacySafeRequest(request.method, request.params)
+        ) {
+          throw new Error(
+            "离线隐私模式已阻止普通任务、工具和在线发送。请使用独立隐私输入区，或清空隐私对话后退出。",
+          );
+        }
+        if (explicitlyPrivate(request.params)) {
+          throw new Error(
+            "检测到明确隐私标记，内容尚未发送。请先开启离线隐私模式并使用独立输入区。",
+          );
+        }
+      } catch (error) {
+        await this.#writer.json(rpcError(request, -32091, errorMessage(error)));
+        return;
+      }
     }
     if (request.method === LOADED_SESSIONS_METHOD) {
       await this.#writer.json(
@@ -1506,6 +1557,9 @@ export class AppServerHost {
     value: JsonValue,
     frame: Buffer<ArrayBufferLike>,
   ): Promise<void> {
+    if (await this.#buddy?.privateMode()) {
+      return;
+    }
     const response = isRecord(value) ? value : null;
     const request =
       response && (typeof response.id === "string" || typeof response.id === "number")
@@ -1527,6 +1581,12 @@ export class AppServerHost {
     frame: Buffer<ArrayBufferLike>,
   ): Promise<void> {
     try {
+      if (
+        (await this.#buddy?.privateMode()) &&
+        !privacySafeRequest(request.method, request.params)
+      ) {
+        throw new Error("隐私模式禁止普通发送。");
+      }
       this.#buddy?.track(request);
       await this.#officialRuntime.sendFrame(frame);
     } catch {
@@ -1594,6 +1654,9 @@ export class AppServerHost {
   }
 
   async #requestOfficial(method: string, params: JsonObject): Promise<JsonObject> {
+    if ((await this.#buddy?.privateMode()) && !privacySafeRequest(method, params)) {
+      throw new Error("隐私模式禁止后台模型任务。");
+    }
     return this.#officialRuntime.request(method, params);
   }
 

@@ -1,4 +1,9 @@
 import {
+  BUDDY_PRIVATE_METHOD,
+  buddyPrivateRequestSchema,
+  buddyPrivateSnapshotSchema,
+  type BuddyPrivateRequest,
+  type BuddyPrivateSnapshot,
   BUDDY_MODELS_METHOD,
   BUDDY_STATUS_METHOD,
   BUDDY_SETTINGS_METHOD,
@@ -165,6 +170,7 @@ function notificationTarget(manager: RequestManagerCandidate): RequestManagerCan
 }
 
 export interface RendererModelClient extends Partial<RendererSessionImportClient> {
+  buddyPrivate?(input: BuddyPrivateRequest): Promise<BuddyPrivateSnapshot>;
   buddyStatus?(): Promise<BuddySnapshot>;
   buddyModels?(): Promise<BuddySnapshot>;
   buddyConfigure?(settings: BuddySettings): Promise<BuddySnapshot>;
@@ -322,6 +328,15 @@ export function createRendererModelClient(
   };
 
   return Object.freeze({
+    buddyPrivate: async (input: BuddyPrivateRequest) => {
+      const params = buddyPrivateRequestSchema.safeParse(input);
+      if (!params.success) {
+        throw new Error("Invalid private request");
+      }
+      return buddyPrivateSnapshotSchema.parse(
+        await manager.sendRequest(BUDDY_PRIVATE_METHOD, params.data),
+      );
+    },
     buddyStatus: async () =>
       buddySnapshotSchema.parse(await manager.sendRequest(BUDDY_STATUS_METHOD, {})),
     buddyModels: async () =>

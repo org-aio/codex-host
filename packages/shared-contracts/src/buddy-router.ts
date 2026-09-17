@@ -7,6 +7,7 @@ export const BUDDY_CANCEL_METHOD = "codexhost/buddy/cancel";
 export const buddySettingsSchema = z
   .object({
     enabled: z.boolean().default(true),
+    privateMode: z.boolean().default(false),
     role: z.enum(["auto", "git", "io", "executor"]).default("auto"),
     bypass: z.boolean().default(true),
     plannerModel: z.string().max(200).nullable().default(null),

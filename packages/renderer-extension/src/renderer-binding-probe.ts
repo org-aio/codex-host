@@ -2690,7 +2690,7 @@ export function installRendererBindingProbe(
   const buddyControl = installBuddyControl(
     () => {
       const mounted = connectedComposers()[0];
-      if (!mounted || controller.get(mounted.composer).agent !== "codex") {
+      if (!mounted) {
         return null;
       }
       const client = modelClientForHost(mounted.hostId ?? activeModelHostId() ?? "local");

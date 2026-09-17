@@ -1,5 +1,6 @@
 import type { BuddyDecision, BuddySettings, BuddySnapshot } from "@codexhost/shared-contracts";
 import type { RendererModelClient } from "../renderer-model-client.js";
+import { createPrivateControl } from "./private-control.js";
 
 const messages = {
   "zh-CN": {
@@ -7,6 +8,8 @@ const messages = {
     disabled: "已关闭",
     disconnected: "未连接路由",
     enabled: "自动路由",
+    privateMode: "离线隐私模式（退出会清空）",
+    privateActive: "离线隐私 · 在线发送已阻止",
     bypass: "精确命令旁路",
     auto: "自动选择角色",
     git: "Git 智能体",
@@ -46,6 +49,8 @@ const messages = {
     disabled: "Off",
     disconnected: "Router disconnected",
     enabled: "Auto Router",
+    privateMode: "Offline private mode (clears on exit)",
+    privateActive: "Private · Online sending blocked",
     bypass: "Exact command bypass",
     auto: "Automatic role",
     git: "Git agent",
@@ -96,6 +101,11 @@ const style = `
 [data-buddy-router] dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}[data-buddy-router] dt{opacity:.65}
 [data-buddy-router] .buddy-note{opacity:.65;margin:6px 0 0}[data-buddy-router] [role=alert]{color:#d65f55;white-space:pre-wrap}
 @media(max-width:500px){[data-buddy-router] label{flex-wrap:wrap}[data-buddy-router] dl{grid-template-columns:minmax(0,1fr);gap:2px}[data-buddy-router] dd{margin-bottom:8px}}
+[data-buddy-private]{border-top:1px solid #508df2;margin-top:12px;padding-top:10px}
+[data-buddy-private][hidden]{display:none}[data-buddy-private] h3{font-size:14px;margin:0}
+[data-buddy-private] textarea{box-sizing:border-box;display:block;width:100%;resize:vertical;font:inherit;color:inherit;background:transparent;border:1px solid #508df2;border-radius:8px;padding:10px;margin:10px 0}
+[data-buddy-private] pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
+[data-buddy-private] .buddy-private-transcript{max-height:280px;overflow:auto}[data-buddy-private] [role=alert]{color:#d65f55}
 `;
 
 export interface BuddyControlContext {
@@ -125,14 +135,32 @@ export function installBuddyControl(
   const error = document.createElement("p");
   error.setAttribute("role", "alert");
   const note = document.createElement("p");
+  const privateControl = createPrivateControl(getLocale);
   note.className = "buddy-note";
-  panel.append(controls, fields, error, note);
+  panel.append(controls, fields, error, note, privateControl.element);
   root.append(styles, summary, panel);
   let disposed = false;
   let busy = false;
   let snapshot: BuddySnapshot | null = null;
   let context: BuddyControlContext | null = null;
   let fingerprint = "";
+  let guardedAnchor: HTMLElement | null = null;
+  let originalHidden: HTMLElement["hidden"] = false;
+  let originalInert = false;
+  const guardComposer = (anchor: Element | null, enabled: boolean): void => {
+    if (guardedAnchor && (guardedAnchor !== anchor || !enabled)) {
+      guardedAnchor.hidden = originalHidden;
+      guardedAnchor.inert = originalInert;
+      guardedAnchor = null;
+    }
+    if (enabled && anchor instanceof HTMLElement && guardedAnchor !== anchor) {
+      guardedAnchor = anchor;
+      originalHidden = anchor.hidden;
+      originalInert = anchor.inert;
+      anchor.hidden = true;
+      anchor.inert = true;
+    }
+  };
   const t = () => messages[getLocale()];
   const report = (failure: unknown): void => {
     error.textContent = failure instanceof Error ? failure.message : String(failure);
@@ -156,7 +184,7 @@ export function installBuddyControl(
     dd.textContent = value;
     fields.append(dt, dd);
   };
-  const check = (label: string, key: "enabled" | "bypass"): void => {
+  const check = (label: string, key: "enabled" | "bypass" | "privateMode"): void => {
     const wrapper = document.createElement("label");
     const input = document.createElement("input");
     input.type = "checkbox";
@@ -204,12 +232,16 @@ export function installBuddyControl(
       return;
     }
     const decision = snapshot.decisions.find((d) => d.threadId === context?.threadId);
+    guardComposer(context?.anchor ?? null, snapshot.settings.privateMode);
+    privateControl.update(snapshot.settings.privateMode, context?.client ?? null);
     const phase = (d: BuddyDecision): string => (d.phase === "bypass" ? m.bypassPhase : m[d.phase]);
-    status.textContent = !snapshot.settings.enabled
-      ? m.disabled
-      : decision
-        ? `${phase(decision)} · ${decision.command ? m.noModel : decision.phase === "planning" ? (decision.plannerModel ?? m.waiting) : (decision.acceptedModel ?? decision.executorModel ?? m.waiting)}`
-        : m.waiting;
+    status.textContent = snapshot.settings.privateMode
+      ? m.privateActive
+      : !snapshot.settings.enabled
+        ? m.disabled
+        : decision
+          ? `${phase(decision)} · ${decision.command ? m.noModel : decision.phase === "planning" ? (decision.plannerModel ?? m.waiting) : (decision.acceptedModel ?? decision.executorModel ?? m.waiting)}`
+          : m.waiting;
     const signature = JSON.stringify([snapshot, context?.threadId, getLocale()]);
     if (signature === fingerprint) {
       return;
@@ -218,6 +250,12 @@ export function installBuddyControl(
     controls.replaceChildren();
     fields.replaceChildren();
     error.textContent = "";
+    check(m.privateMode, "privateMode");
+    if (snapshot.settings.privateMode) {
+      root.open = true;
+      note.textContent = "";
+      return;
+    }
     check(m.enabled, "enabled");
     check(m.bypass, "bypass");
     select(
@@ -306,6 +344,8 @@ export function installBuddyControl(
     if (!next) {
       root.remove();
       context = null;
+      privateControl.update(false, null);
+      guardComposer(null, false);
       return;
     }
     context = next;
@@ -327,6 +367,9 @@ export function installBuddyControl(
     } catch (failure) {
       status.textContent = t().disconnected;
       report(failure);
+      if (snapshot?.settings.privateMode) {
+        guardComposer(next.anchor, true);
+      }
     } finally {
       busy = false;
     }
@@ -340,6 +383,8 @@ export function installBuddyControl(
     dispose() {
       disposed = true;
       window.clearInterval(timer);
+      privateControl.dispose();
+      guardComposer(null, false);
       root.remove();
     },
   };

@@ -317,3 +317,14 @@ export const packageMetadata = {
   name: "@codexhost/shared-contracts",
   contractVersion: WORKSPACE_CONTRACT_VERSION,
 } as const;
+export {
+  BUDDY_PRIVATE_METHOD,
+  buddyPrivateModelSchema,
+  buddyPrivateRequestSchema,
+  buddyPrivateSnapshotSchema,
+} from "./buddy-private.js";
+export type {
+  BuddyPrivateRequest,
+  BuddyPrivateSnapshot,
+  BuddyPrivateModel,
+} from "./buddy-private.js";

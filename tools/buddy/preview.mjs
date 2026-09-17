@@ -5,11 +5,19 @@ import path from "node:path";
 // 独立浏览器夹具只验证组件；真实 App Server 另由 verify-live.mjs 验证。
 const source = `
 import { installBuddyControl } from './packages/renderer-extension/src/buddy/control.ts';
-const settings = {enabled:true,bypass:true,role:'auto',plannerModel:null,executorModel:null};
+const settings = {enabled:true,privateMode:false,bypass:true,role:'auto',plannerModel:null,executorModel:null};
 const decision = {threadId:'fixture',turnId:'turn-fixture',phase:'executing',role:'io',difficulty:'advanced',score:85,reason:'先规划，再执行已确定的只读验证步骤',plannerModel:'gpt-6',executorModel:'deepseek-v4.1-flash',acceptedModel:'deepseek-v4.1-flash',plan:'读取 README.md；检查 Buddy 标记；报告真实结果。',command:null,exitCode:null,updatedAt:'fixture'};
 const snapshot={settings,models:[{id:'gpt-6',tier:'夯',eligible:true},{id:'claude-opus',tier:'夯',eligible:true},{id:'deepseek-v4.1-flash',tier:'垃',eligible:true}],decisions:[decision]};
-const client={buddyStatus:async()=>structuredClone(snapshot),buddyModels:async()=>structuredClone(snapshot),buddyConfigure:async(value)=>{snapshot.settings=value;return structuredClone(snapshot);},buddyCancel:async()=>{decision.phase='cancelled';return structuredClone(snapshot);}};
-window.buddyFixture={snapshot,client};
+const privateRequests=[];
+const privateSessions=new Map();
+const client={buddyStatus:async()=>structuredClone(snapshot),buddyModels:async()=>structuredClone(snapshot),buddyConfigure:async(value)=>{snapshot.settings=value;if(!value.privateMode)privateSessions.clear();return structuredClone(snapshot);},buddyCancel:async()=>{decision.phase='cancelled';return structuredClone(snapshot);},buddyPrivate:async(value)=>{
+privateRequests.push(value);
+if(value.action==='reset')privateSessions.delete(value.sessionId);
+const state=privateSessions.get(value.sessionId)??{sessionId:value.sessionId,configured:true,endpoint:'http://127.0.0.1:9999/v1/ (fixture)',model:null,busy:false,messages:[]};
+if(value.action==='send'){state.model=value.model;state.messages.push({role:'user',text:value.text},{role:'assistant',text:'模拟离线回复：'+value.text});privateSessions.set(value.sessionId,state);}
+return structuredClone(state);
+}};
+window.buddyFixture={snapshot,client,privateRequests};
 installBuddyControl(()=>({anchor:document.querySelector('#composer'),threadId:'fixture',client}),()=> 'zh-CN');
 `;
 const bundle = await build({
