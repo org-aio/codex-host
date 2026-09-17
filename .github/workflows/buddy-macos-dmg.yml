@@ -1,0 +1,126 @@
+name: Buddy macOS DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Mac architecture (Apple Silicon: arm64; Intel: x64)"
+        type: choice
+        default: macos-arm64
+        options:
+          - macos-arm64
+          - macos-x64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: buddy-dmg-${{ github.ref }}-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build ${{ inputs.target }} DMG
+    runs-on: ${{ inputs.target == 'macos-x64' && 'macos-15-intel' || 'macos-14' }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TARGET: ${{ inputs.target }}
+    steps:
+      - name: Checkout exact build commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Setup npm
+        run: npm install --global npm@11.8.0
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: 1.97.1
+          targets: ${{ inputs.target == 'macos-x64' && 'x86_64-apple-darwin' || 'aarch64-apple-darwin' }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate source
+        run: |
+          npm run format:check
+          npm run lint
+          npm run typecheck
+
+      - name: Test Buddy isolation and installer contracts
+        run: >-
+          npx vitest run --config tests/vitest.config.js
+          packages/host-runtime/test/buddy
+          packages/host-runtime/test/app-server-host.test.ts
+          packages/renderer-extension/test/renderer-model-client.test.ts
+          tests/release
+
+      - name: Assign unique preview version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_version="$(node -p 'require("./package.json").version.split("-")[0]')"
+          version="${base_version}-buddy.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+          npm run release:prepare -- "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Build and verify DMG
+        run: npm run release:package -- --target "$RELEASE_TARGET"
+
+      - name: Record build and checksum
+        env:
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node --input-type=module <<'JS'
+          import { mkdir, copyFile, writeFile } from 'node:fs/promises';
+          const { BUILD_VERSION: version, RELEASE_TARGET: target, GITHUB_SHA: commit,
+            GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repository, GITHUB_RUN_ID: run } = process.env;
+          const name = `codexhost-${version}-${target}.dmg`;
+          await mkdir('build/dmg', { recursive: true });
+          await copyFile(`build/release/${version}/${target}/${name}`, `build/dmg/${name}`);
+          await writeFile('build/dmg/build-info.json', JSON.stringify({ version, target, commit,
+            workflow: `${server}/${repository}/actions/runs/${run}`,
+            signing: 'ad-hoc', notarized: false }, null, 2) + '\n');
+          JS
+          cd build/dmg
+          shasum -a 256 ./*.dmg > SHA256SUMS.txt
+          shasum -a 256 -c SHA256SUMS.txt
+
+      - name: Upload installable DMG
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codexhost-${{ steps.version.outputs.version }}-${{ inputs.target }}
+          path: build/dmg/*
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      - name: Write download instructions
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          BUILD_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## CodexHost Buddy ${BUILD_VERSION}
+
+          [下载 DMG、SHA256 校验值和构建信息](${ARTIFACT_URL})
+
+          解压下载文件，打开 DMG，将 codexhost.app 拖到 Applications。
+          需要已安装 Codex Desktop；保存任务并完全退出 Codex 后，启动 codexhost。
+          此预览包为临时签名，未经 Apple 公证。离线隐私端点需要单独配置。
+
+          来源提交：${GITHUB_SHA}
+          EOF

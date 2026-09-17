@@ -22,7 +22,15 @@
 
 ## 启动 Buddy 客户端
 
-当前 Buddy 版使用源码启动，需要 Node.js 22+、npm、Rust 工具链和已安装的 Codex Desktop：
+macOS 可从 [Buddy macOS DMG 构建](https://github.com/org-aio/codex-host/actions/workflows/buddy-macos-dmg.yml) 下载成功运行的 Artifacts。Apple Silicon 选择 `macos-arm64`，Intel 选择 `macos-x64`。解压后打开 DMG，将 `codexhost.app` 拖到 Applications。需要先安装 Codex Desktop；保存任务、完全退出 Codex 后，启动 `codexhost`。
+
+构建包包含 `SHA256SUMS.txt` 和标明源码提交的 `build-info.json`，可在解压目录执行 `shasum -a 256 -c SHA256SUMS.txt` 校验。预览包使用临时签名，未做 Apple 公证；首次打开如被拦截，按系统设置中的安全提示允许打开。Actions 产物保留 30 天，下载需要登录 GitHub。仓库维护者可通过 **Run workflow** 选择架构重新构建，或运行：
+
+```bash
+gh workflow run buddy-macos-dmg.yml --repo org-aio/codex-host --ref main -f target=macos-arm64
+```
+
+也可使用源码启动，需要 Node.js 22+、npm、Rust 工具链和已安装的 Codex Desktop：
 
 ```bash
 git clone https://github.com/org-aio/codex-host.git
@@ -37,7 +45,7 @@ npm start
 
 这些 UI 和运行时能力由本 fork 的 launcher、Host 与 renderer 扩展提供。只运行 `npx -y codex-buddy` 不会为已打开的官方客户端添加本面板。原 CLI 的模型同步用法继续独立存在；若供应商模型尚未出现在 App Server 目录，可先运行 `npx -y codex-buddy sync` 并重新启动。
 
-不改写官方 app 的安装文件。官方更新后仍使用新的 Codex，GUI 注入若遇到上游结构变化，需要更新本 fork 的适配。Buddy 的更新源已指向 `org-aio/codex-host`；当前未发布 Buddy 安装包，先按源码方式使用。以下保留上游功能介绍与示例。
+不改写官方 app 的安装文件。官方更新后仍使用新的 Codex，GUI 注入若遇到上游结构变化，需要更新本 fork 的适配。Buddy 的更新源已指向 `org-aio/codex-host`；Actions 预览包需手动下载更新，不会通过正式 Releases 自动更新。以下保留上游功能介绍与示例。
 
 详见 [Auto Router 用法与边界](docs/product/buddy-auto-router.md)。
 
@@ -111,7 +119,7 @@ https://github.com/user-attachments/assets/c48192d7-23ff-4f6e-b61a-6345a655bb76
 
 **下载安装包**（macOS、Windows）
 
-上游安装包见 [上游版本](https://github.com/BytePioneer-AI/codex-host/releases/latest)，不包含本 fork 的 Buddy 改动。Buddy 版当前请使用本文开头的源码启动步骤；后续安装包将在 [本 fork 的 Releases](https://github.com/org-aio/codex-host/releases) 提供。
+Buddy macOS 预览包见 [GitHub Actions 构建](https://github.com/org-aio/codex-host/actions/workflows/buddy-macos-dmg.yml)，安装步骤见本文开头。上游 macOS / Windows 安装包见 [上游版本](https://github.com/BytePioneer-AI/codex-host/releases/latest)，不包含本 fork 的 Buddy 改动；正式 Buddy 发行版将在 [本 fork 的 Releases](https://github.com/org-aio/codex-host/releases) 提供。
 
 <details>
 <summary>安装问题排查</summary>

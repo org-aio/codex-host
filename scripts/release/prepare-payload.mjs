@@ -56,6 +56,12 @@ const runtimeLicenses = [
     output: "QoderCN-Agent-SDK-LICENSE.txt",
   },
   { packageName: "diff", license: "BSD-3-Clause", source: "LICENSE", output: "diff-LICENSE.txt" },
+  {
+    packageName: "smol-toml",
+    license: "BSD-3-Clause",
+    source: "LICENSE",
+    output: "smol-toml-LICENSE.txt",
+  },
   { packageName: "lucide", license: "ISC", source: "LICENSE", output: "lucide-LICENSE.txt" },
   {
     packageName: "tailwindcss",
@@ -236,6 +242,17 @@ export async function writeThirdPartyNotices(root, payloadRoot) {
     "License text: licenses/opencodex-LICENSE.txt",
     "",
   );
+  await copyReleaseFile(
+    path.join(root, "packages", "buddy-engine", "LICENSE"),
+    path.join(licensesDirectory, "codex-buddy-LICENSE.txt"),
+    "Codex Buddy engine license",
+  );
+  notices.push(
+    "Codex Buddy engine (d388432511e96e4648f54aa522332f90d0f1a86e)",
+    "License: MIT",
+    "License text: licenses/codex-buddy-LICENSE.txt",
+    "",
+  );
   await writeFile(
     path.join(payloadRoot, "THIRD_PARTY_NOTICES.txt"),
     `${notices.join("\n").trimEnd()}\n`,
@@ -265,7 +282,9 @@ export function expectedPayloadPaths(target) {
     "licenses/Qoder-Agent-SDK-LICENSE.txt",
     "licenses/QoderCN-Agent-SDK-LICENSE.txt",
     "licenses/opencodex-LICENSE.txt",
+    "licenses/codex-buddy-LICENSE.txt",
     "licenses/diff-LICENSE.txt",
+    "licenses/smol-toml-LICENSE.txt",
     "licenses/lucide-LICENSE.txt",
     "licenses/tailwindcss-LICENSE.txt",
     "licenses/ws-LICENSE.txt",

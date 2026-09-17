@@ -41,6 +41,12 @@ describe("release Payload", () => {
       expect(
         await readFile(path.join(root, "licenses/Agent-Client-Protocol-SDK-LICENSE.txt"), "utf8"),
       ).toContain("Apache License");
+      expect(await readFile(path.join(root, "licenses/codex-buddy-LICENSE.txt"), "utf8")).toContain(
+        "Copyright (c) 2026 zjarlin",
+      );
+      expect(await readFile(path.join(root, "licenses/smol-toml-LICENSE.txt"), "utf8")).toContain(
+        "Redistribution and use",
+      );
       await expect(
         validatePayload({ payloadRoot: root, target, root: "/repo/source" }),
       ).resolves.toContain("licenses/Agent-Client-Protocol-SDK-LICENSE.txt");
@@ -92,9 +98,9 @@ describe("release Payload", () => {
       await createPayload(root, target);
       const paths = await validatePayload({ payloadRoot: root, target, root: "/repo/source" });
       expect(paths).toEqual(expectedPayloadPaths(target));
-      expect(paths).toHaveLength(24 + preinstalledHarnessPluginPaths().length);
+      expect(paths).toHaveLength(26 + preinstalledHarnessPluginPaths().length);
       expect(expectedPayloadPaths(releaseTarget("windows-x64"))).toHaveLength(
-        26 + preinstalledHarnessPluginPaths().length,
+        28 + preinstalledHarnessPluginPaths().length,
       );
       expect(paths).toContain("licenses/tailwindcss-LICENSE.txt");
       expect(paths).toContain("app/plugins/enabled.json");
