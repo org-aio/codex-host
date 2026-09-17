@@ -25,6 +25,10 @@ const testState = vi.hoisted(() => ({
   modelTarget: ["conversation", "thread-a"] as readonly unknown[],
 }));
 
+vi.mock("../src/buddy/control.js", () => ({
+  installBuddyControl: () => ({ refresh: vi.fn(async () => undefined), dispose: vi.fn() }),
+}));
+
 vi.mock("../src/renderer-composer-dom.js", async (importOriginal) => {
   const original = await importOriginal<typeof RendererComposerDom>();
   return {
