@@ -85,7 +85,12 @@ export class BuddyPlanner {
       pending.finished = true;
       const turn = object(params.turn);
       if (turn.status !== "completed") {
-        pending.reject(new Error(`规划未完成：${String(turn.status)}`));
+        const detail = object(turn.error).message;
+        pending.reject(
+          new Error(
+            `规划未完成：${String(turn.status)}${typeof detail === "string" ? `；${detail}` : ""}`,
+          ),
+        );
         return true;
       }
       try {
